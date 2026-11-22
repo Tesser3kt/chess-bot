@@ -4,97 +4,125 @@
 //! engine. It is not intended to be used directly by users of the library, but rather to support
 //! the implementation of the core functionality.
 
-/// Converts a board representation from an array of strings to a 64-bit unsigned integer.
-/// The board is read from left to right, bottom to top.
-pub fn board_to_uint(board: &[&str; 8]) -> Result<u64, String> {
-    if board.len() != 8 {
-        return Err(format!(
-            "Invalid board length: {}. Board must have exactly 8 rows.",
-            board.len()
-        ));
+/// Creates a lookup table for reversing the bits in a byte. This table is used to efficiently reverse
+/// the bits in a 64-bit unsigned integer by reversing the bits in each byte and then
+const fn make_reverse_bits_table() -> [u8; 256] {
+    let mut table = [0u8; 256];
+    let mut i = 0;
+
+    while i < 256 {
+        table[i] = (i as u8).reverse_bits();
+        i += 1;
     }
 
-    let mut result: u64 = 0;
-
-    for (i, row) in board.iter().enumerate() {
-        for (j, c) in row.chars().enumerate() {
-            match c {
-                'X' => result |= 1 << ((7 - i) * 8 + j),
-                '.' => (),
-                _ => {
-                    return Err(format!(
-                        "Invalid character '{}' at position ({}, {}). Only 'X' and '.' are allowed.",
-                        c, i, j
-                    ));
-                }
-            }
-        }
-    }
-
-    Ok(result)
+    table
 }
+const REVERSE_BITS: [u8; 256] = make_reverse_bits_table();
 
-/// Converts a 64-bit unsigned integer representation of a board to an array of strings.
-/// The board is read from left to right, bottom to top.
-pub fn uint_to_board(board: u64) -> [String; 8] {
-    let mut result = std::array::from_fn(|_| String::new());
+/// Reverses the bits in each byte of a 64-bit unsigned integer.
+/// Uses algorithm from Hacker's Delight, 2nd edition, by Henry S. Warren, Jr.
+fn reverse_bits_by_byte(x: u64) -> u64 {
+    let mut x = x;
+    let mut result = 0u64;
 
-    for (i, row) in result.iter_mut().enumerate() {
-        for j in 0..8 {
-            let bit_index = (7 - i) * 8 + j;
-            if (board & (1 << bit_index)) != 0 {
-                row.push('X');
-            } else {
-                row.push('.');
-            }
-        }
+    for i in 0..8 {
+        let byte = (x & 0xFF) as u8;
+        result |= (REVERSE_BITS[byte as usize] as u64) << (i * 8);
+        x >>= 8;
     }
 
     result
 }
 
+/// Transposes a 64-bit unsigned integer, treating it as an 8x8 matrix of bits. The LSB represents
+/// the square a1, and the MSB represents the square h8.
+fn transpose(x: u64) -> u64 {
+    let mut x = x;
+    let mut t = (x ^ (x >> 7)) & 0x00AA00AA00AA00AA;
+    x ^= t ^ (t << 7);
+
+    t = (x ^ (x >> 14)) & 0x0000CCCC0000CCCC;
+    x ^= t ^ (t << 14);
+
+    t = (x ^ (x >> 28)) & 0x00000000F0F0F0F0;
+    x ^= t ^ (t << 28);
+
+    x
+}
+
+/// Reverses the order of the bytes in a 64-bit unsigned integer. The LSB
+/// becomes the MSB, and vice versa.
+fn reverse_bytes(x: u64) -> u64 {
+    let mut x = x;
+    let mut result = 0u64;
+
+    for i in 0..8 {
+        let byte = (x & 0xFF) as u8;
+        result |= (byte as u64) << ((7 - i) * 8);
+        x >>= 8;
+    }
+
+    result
+}
+
+/// Rotates a 64-bit unsigned integer by 180 degrees, rotating the board.
+/// This is done by reversing the bits in each byte and then reversing the order of the bytes.
+pub fn rotate_by_180(x: u64) -> u64 {
+    reverse_bytes(reverse_bits_by_byte(x))
+}
+
+/// Flips a 64-bit unsigned integer vertically, flipping the board upside down.
+/// This is done by swapping the bits in each row of the board.
+pub fn flip_vertical(x: u64) -> u64 {
+    reverse_bits_by_byte(x)
+}
+
+pub fn flip_horizontal(x: u64) -> u64 {
+    reverse_bytes(x)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     #[test]
-    fn test_board_to_uint() {
-        let board = [
-            "........", "........", "........", "........", "........", "........", "........",
-            "XXXXXXXX",
-        ];
-        let result = super::board_to_uint(&board).unwrap();
-        assert_eq!(result, 0x0000000000000FF);
-
-        let board = [
-            "...X....", "...X..XX", "..XX....", "X......X", "..X.....", "........", "........",
-            ".......X",
-        ];
-        let result = super::board_to_uint(&board).unwrap();
-        assert_eq!(
-            result,
-            0b0000100011001000000011001000000100000100000000000000000010000000
-        );
+    fn test_reverse_bits_by_byte() {
+        let input: u64 = 0x0123456789ABCDEF;
+        let expected_output: u64 = 0x80C4A2E691D5B3F7;
+        assert_eq!(reverse_bits_by_byte(input), expected_output);
     }
 
     #[test]
-    fn test_uint_to_board() {
-        let board = 0x0000000000000FF;
-        let result = super::uint_to_board(board);
-        assert_eq!(
-            result,
-            [
-                "........", "........", "........", "........", "........", "........", "........",
-                "XXXXXXXX"
-            ]
-        );
+    fn test_reverse_bytes() {
+        let input: u64 = 0x0123456789ABCDEF;
+        let expected_output: u64 = 0xEFCDAB8967452301;
+        assert_eq!(reverse_bytes(input), expected_output);
+    }
 
-        let board = 0b0000100011001000000011001000000100000100000000000000000010000000;
-        let result = super::uint_to_board(board);
-        assert_eq!(
-            result,
-            [
-                "...X....", "...X..XX", "..XX....", "X......X", "..X.....", "........", "........",
-                ".......X"
-            ]
-        );
+    #[test]
+    fn test_transpose() {
+        let input: u64 = 0x0123456789ABCDEF;
+        let expected_output: u64 = 0x0F3355000F3355FF;
+        assert_eq!(transpose(input), expected_output);
+    }
+
+    #[test]
+    fn test_rotate_by_180() {
+        let input: u64 = 0x0123456789ABCDEF;
+        let expected_output: u64 = 0xF7B3D591E6A2C480;
+        assert_eq!(rotate_by_180(input), expected_output);
+    }
+
+    #[test]
+    fn test_flip_vertical() {
+        let input: u64 = 0x0123456789ABCDEF;
+        let expected_output: u64 = 0x80C4A2E691D5B3F7;
+        assert_eq!(flip_vertical(input), expected_output);
+    }
+
+    #[test]
+    fn test_flip_horizontal() {
+        let input: u64 = 0x0123456789ABCDEF;
+        let expected_output: u64 = 0xEFCDAB8967452301;
+        assert_eq!(flip_horizontal(input), expected_output);
     }
 }
