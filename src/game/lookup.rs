@@ -2,13 +2,60 @@
 //!
 //! Module containing lookup tables and functions for bit manipulation and board representation.
 
-use std::collections::HashMap;
-
 /// Generates a direction lookup table from each board position.
 /// For example, (10, (1, -1)) has all ones starting at the square c2 in direction (1, -1), that is,
-/// north-east.
-const fn generate_direction_lookup() {
-    let mut lookup_table: HashMap<(u64, (i8, i8)), u64> = HashMap::new();
+/// north-east (first rank, then file).
+const fn generate_direction_lookup() -> [[u64; 9]; 64] {
+    let mut lookup_table: [[u64; 9]; 64] = [[0u64; 9]; 64];
+
+    let mut i = 0;
+    while i < 64 {
+        let rank = i / 8;
+        let file = 7 - (i % 8);
+
+        // Calculate the mask in each direction.
+        let mut direction_rank = -1;
+        while direction_rank <= 1 {
+            let mut direction_file = -1;
+            while direction_file <= 1 {
+                // Mask index is calculated as 3 * (dr + 1) + (df + 1).
+                // Direction (0, 0) is skipped.
+                if direction_rank == 0 && direction_file == 0 {
+                    direction_file += 1;
+                    continue;
+                }
+
+                let index = 3 * (direction_rank + 1) + (direction_file + 1);
+                let mut tiles = 0u64;
+
+                let mut dr = 0;
+                let mut df = 0;
+
+                loop {
+                    let new_rank = rank as isize + dr;
+                    let new_file = file as isize - df;
+
+                    if (new_rank >= 0 && new_rank <= 7) && (new_file >= 0 && new_file <= 7) {
+                        tiles |= 1u64 << (new_rank * 8 + new_file);
+                    } else {
+                        break;
+                    }
+
+                    dr += direction_rank;
+                    df += direction_file;
+                }
+
+                lookup_table[i][index as usize] = tiles;
+                direction_file += 1;
+            }
+
+            direction_rank += 1;
+        }
+
+        i += 1;
+    }
+
+    lookup_table
 }
 
 /// Generates a lookup table for valid pawn moves but not captures from each square on the chessboard.
@@ -193,6 +240,7 @@ const fn queen_valid_lookup() -> [u64; 64] {
 
     lookup
 }
+
 /// Generates a lookup table for valid king moves from each square on the chessboard.
 const fn king_valid_lookup() -> [u64; 64] {
     let mut lookup = [0u64; 64];
@@ -211,7 +259,7 @@ const fn king_valid_lookup() -> [u64; 64] {
                 let new_rank = rank as isize + dr;
                 let new_file = file as isize + df;
 
-                if (new_rank == rank as isize && new_file == file as isize) {
+                if new_rank == rank as isize && new_file == file as isize {
                     // Skip piece position.
                     df += 1;
                     continue;
@@ -234,6 +282,7 @@ const fn king_valid_lookup() -> [u64; 64] {
     lookup
 }
 
+pub static DIRECTION_LOOKUP: [[u64; 9]; 64] = generate_direction_lookup();
 pub const PAWN_VALID_MOVES_LOOKUP: [u64; 64] = pawn_valid_move_lookup();
 pub const PAWN_VALID_CAPTURES_LOOKUP: [u64; 64] = pawn_valid_capture_lookup();
 pub const ROOK_VALID_LOOKUP: [u64; 64] = rook_valid_lookup();
@@ -245,6 +294,15 @@ pub const KING_VALID_LOOKUP: [u64; 64] = king_valid_lookup();
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_direction_lookup() {
+        // Test a few squares and directions for direction lookup.
+        assert_eq!(DIRECTION_LOOKUP[0][5], 0x00000000000000FF); // Square a1, east
+        assert_eq!(DIRECTION_LOOKUP[4][7], 0x0808080808080808); // Square a5, north
+        assert_eq!(DIRECTION_LOOKUP[30][2], 0x0000000002010000); // Square g4, south-east
+        assert_eq!(DIRECTION_LOOKUP[50][0], 0x0020408000000000); // Square c7, south-west
+    }
 
     #[test]
     fn test_pawn_valid_move_lookup() {
