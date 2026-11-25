@@ -6,8 +6,11 @@
 //! bit (MSB) represents the square h8. A bit value of 1 indicates that the square is occupied,
 //! while a bit value of 0 indicates that the square is empty.
 
-use super::auxil::flip_horizontal;
-use std::fmt;
+use crate::game::auxil::flip_horizontal;
+use std::{
+    fmt,
+    ops::{Index, IndexMut},
+};
 
 /// Player struct for holding the player pieces and related methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,9 +55,33 @@ impl Default for Player {
 /// pieces on the top.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Board {
-    white: Player,
-    black: Player,
-    player: bool,
+    // 0 for pawn, 1 for rook, 2 for knight, 3 for bishop, 4 for queen, 5 for king
+    pieces: [[u64; 6]; 2],
+    player: u8, // 0 for white, 1 for black
+}
+
+/// Default board state, all pieces 0.
+impl Default for Board {
+    fn default() -> Self {
+        Self {
+            pieces: [[0u64; 6]; 2],
+            player: 0,
+        }
+    }
+}
+
+/// Index trait, to access pieces by `Board[player]` instead of `Board.pieces[player]`.
+impl Index<usize> for Board {
+    type Output = [u64; 6];
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.pieces[index]
+    }
+}
+
+impl IndexMut<usize> for Board {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.pieces[index]
+    }
 }
 
 impl Board {
@@ -63,9 +90,8 @@ impl Board {
     fn switch_perspective(&self) -> Self {
         let mut new_board = *self;
 
-        new_board.white = self.black;
-        new_board.black = self.white;
-        new_board.player = !self.player;
+        (new_board[0], new_board[1]) = (new_board[1], new_board[0]);
+        new_board.player = !new_board.player;
 
         new_board
     }
@@ -74,28 +100,24 @@ impl Board {
     /// Characters in the strings represent pieces, with uppercase letters for white pieces and lowercase
     /// letters for black pieces. Empty squares are represented by a dot ('.').
     pub fn from_array(board: [String; 8]) -> Result<Self, String> {
-        let mut new_board = Board {
-            white: Player::new(),
-            black: Player::new(),
-            player: true,
-        };
+        let mut new_board = Board::default();
 
-        for (i, row) in board.iter().enumerate() {
-            for (j, square) in row.chars().enumerate() {
-                let bit_index = (7 - i) * 8 + j;
+        for (i, row) in board.iter().rev().enumerate() {
+            for (j, square) in row.chars().rev().enumerate() {
+                let bit_index = 8 * i + j;
                 match square {
-                    'P' => new_board.white.pawns |= 1 << bit_index,
-                    'p' => new_board.black.pawns |= 1 << bit_index,
-                    'R' => new_board.white.rooks |= 1 << bit_index,
-                    'r' => new_board.black.rooks |= 1 << bit_index,
-                    'N' => new_board.white.knights |= 1 << bit_index,
-                    'n' => new_board.black.knights |= 1 << bit_index,
-                    'B' => new_board.white.bishops |= 1 << bit_index,
-                    'b' => new_board.black.bishops |= 1 << bit_index,
-                    'Q' => new_board.white.queens |= 1 << bit_index,
-                    'q' => new_board.black.queens |= 1 << bit_index,
-                    'K' => new_board.white.king |= 1 << bit_index,
-                    'k' => new_board.black.king |= 1 << bit_index,
+                    'P' => new_board[0][0] |= 1 << bit_index,
+                    'p' => new_board[1][0] |= 1 << bit_index,
+                    'R' => new_board[0][1] |= 1 << bit_index,
+                    'r' => new_board[1][1] |= 1 << bit_index,
+                    'N' => new_board[0][2] |= 1 << bit_index,
+                    'n' => new_board[1][2] |= 1 << bit_index,
+                    'B' => new_board[0][3] |= 1 << bit_index,
+                    'b' => new_board[1][3] |= 1 << bit_index,
+                    'Q' => new_board[0][4] |= 1 << bit_index,
+                    'q' => new_board[1][4] |= 1 << bit_index,
+                    'K' => new_board[0][5] |= 1 << bit_index,
+                    'k' => new_board[1][5] |= 1 << bit_index,
                     '.' => {}
                     _ => return Err(format!("Invalid character '{}' at ({}, {})", square, i, j)),
                 }
@@ -107,17 +129,21 @@ impl Board {
 
     /// Places black and white pieces on the board in their initial positions.
     pub fn place_pieces(&mut self) {
-        self.white = Player::default();
-        self.black = Player::default();
-        self.player = true;
+        for player in 0..=1 {
+            self[player][0] = 0x000000000000FF00;
+            self[player][1] = 0x0000000000000081;
+            self[player][2] = 0x0000000000000042;
+            self[player][3] = 0x0000000000000024;
+            self[player][4] = 0x0000000000000010;
+            self[player][5] = 0x0000000000000008;
+        }
 
         // Flip the black pieces to their correct positions on the board.
-        self.black.pawns = flip_horizontal(self.black.pawns);
-        self.black.rooks = flip_horizontal(self.black.rooks);
-        self.black.knights = flip_horizontal(self.black.knights);
-        self.black.bishops = flip_horizontal(self.black.bishops);
-        self.black.queens = flip_horizontal(self.black.queens);
-        self.black.king = flip_horizontal(self.black.king);
+        let mut black_pieces = [0u64; 6];
+        for (index, pieces) in self[1].iter().enumerate() {
+            black_pieces[index] = flip_horizontal(pieces);
+        }
+        self[1] = black_pieces;
     }
 }
 
@@ -127,31 +153,31 @@ impl fmt::Display for Board {
     /// letters for black pieces. Empty squares are represented by a dot ('.').
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for i in (0..8).rev() {
-            for j in 0..8 {
+            for j in (0..8).rev() {
                 let bit_index = i * 8 + j;
-                let square = if (self.white.pawns >> bit_index) & 1 == 1 {
+                let square = if (self[0][0] >> bit_index) & 1 == 1 {
                     'P'
-                } else if (self.black.pawns >> bit_index) & 1 == 1 {
+                } else if (self[1][0] >> bit_index) & 1 == 1 {
                     'p'
-                } else if (self.white.rooks >> bit_index) & 1 == 1 {
+                } else if (self[0][1] >> bit_index) & 1 == 1 {
                     'R'
-                } else if (self.black.rooks >> bit_index) & 1 == 1 {
+                } else if (self[1][1] >> bit_index) & 1 == 1 {
                     'r'
-                } else if (self.white.knights >> bit_index) & 1 == 1 {
+                } else if (self[0][2] >> bit_index) & 1 == 1 {
                     'N'
-                } else if (self.black.knights >> bit_index) & 1 == 1 {
+                } else if (self[1][2] >> bit_index) & 1 == 1 {
                     'n'
-                } else if (self.white.bishops >> bit_index) & 1 == 1 {
+                } else if (self[0][3] >> bit_index) & 1 == 1 {
                     'B'
-                } else if (self.black.bishops >> bit_index) & 1 == 1 {
+                } else if (self[1][3] >> bit_index) & 1 == 1 {
                     'b'
-                } else if (self.white.queens >> bit_index) & 1 == 1 {
+                } else if (self[0][4] >> bit_index) & 1 == 1 {
                     'Q'
-                } else if (self.black.queens >> bit_index) & 1 == 1 {
+                } else if (self[1][4] >> bit_index) & 1 == 1 {
                     'q'
-                } else if (self.white.king >> bit_index) & 1 == 1 {
+                } else if (self[0][5] >> bit_index) & 1 == 1 {
                     'K'
-                } else if (self.black.king >> bit_index) & 1 == 1 {
+                } else if (self[1][5] >> bit_index) & 1 == 1 {
                     'k'
                 } else {
                     '.'
@@ -160,6 +186,7 @@ impl fmt::Display for Board {
             }
             writeln!(f)?;
         }
+
         Ok(())
     }
 }
@@ -167,6 +194,7 @@ impl fmt::Display for Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_from_array() {
         let board_array = [
@@ -182,18 +210,18 @@ mod tests {
 
         let board = Board::from_array(board_array).unwrap();
 
-        assert_eq!(board.white.pawns, 0x000000000000FF00);
-        assert_eq!(board.black.pawns, 0x00FF000000000000);
-        assert_eq!(board.white.rooks, 0x0000000000000081);
-        assert_eq!(board.black.rooks, 0x8100000000000000);
-        assert_eq!(board.white.knights, 0x0000000000000042);
-        assert_eq!(board.black.knights, 0x4200000000000000);
-        assert_eq!(board.white.bishops, 0x0000000000000024);
-        assert_eq!(board.black.bishops, 0x2400000000000000);
-        assert_eq!(board.white.queens, 0x0000000000000008);
-        assert_eq!(board.black.queens, 0x0800000000000000);
-        assert_eq!(board.white.king, 0x0000000000000010);
-        assert_eq!(board.black.king, 0x1000000000000000);
+        assert_eq!(board[0][0], 0x000000000000FF00);
+        assert_eq!(board[1][0], 0x00FF000000000000);
+        assert_eq!(board[0][1], 0x0000000000000081);
+        assert_eq!(board[1][1], 0x8100000000000000);
+        assert_eq!(board[0][2], 0x0000000000000042);
+        assert_eq!(board[1][2], 0x4200000000000000);
+        assert_eq!(board[0][3], 0x0000000000000024);
+        assert_eq!(board[1][3], 0x2400000000000000);
+        assert_eq!(board[0][4], 0x0000000000000010);
+        assert_eq!(board[1][4], 0x1000000000000000);
+        assert_eq!(board[0][5], 0x0000000000000008);
+        assert_eq!(board[1][5], 0x0800000000000000);
     }
 
     #[test]
@@ -225,24 +253,20 @@ RNBQKBNR
 
     #[test]
     fn test_place_pieces() {
-        let mut board = Board {
-            white: Player::new(),
-            black: Player::new(),
-            player: true,
-        };
+        let mut board = Board::default();
         board.place_pieces();
 
-        assert_eq!(board.white.pawns, 0x000000000000FF00);
-        assert_eq!(board.black.pawns, 0x00FF000000000000);
-        assert_eq!(board.white.rooks, 0x0000000000000081);
-        assert_eq!(board.black.rooks, 0x8100000000000000);
-        assert_eq!(board.white.knights, 0x0000000000000042);
-        assert_eq!(board.black.knights, 0x4200000000000000);
-        assert_eq!(board.white.bishops, 0x0000000000000024);
-        assert_eq!(board.black.bishops, 0x2400000000000000);
-        assert_eq!(board.white.queens, 0x0000000000000010);
-        assert_eq!(board.black.queens, 0x1000000000000000);
-        assert_eq!(board.white.king, 0x0000000000000008);
-        assert_eq!(board.black.king, 0x0800000000000000);
+        assert_eq!(board[0][0], 0x000000000000FF00);
+        assert_eq!(board[1][0], 0x00FF000000000000);
+        assert_eq!(board[0][1], 0x0000000000000081);
+        assert_eq!(board[1][1], 0x8100000000000000);
+        assert_eq!(board[0][2], 0x0000000000000042);
+        assert_eq!(board[1][2], 0x4200000000000000);
+        assert_eq!(board[0][3], 0x0000000000000024);
+        assert_eq!(board[1][3], 0x2400000000000000);
+        assert_eq!(board[0][4], 0x0000000000000010);
+        assert_eq!(board[1][4], 0x1000000000000000);
+        assert_eq!(board[0][5], 0x0000000000000008);
+        assert_eq!(board[1][5], 0x0800000000000000);
     }
 }
