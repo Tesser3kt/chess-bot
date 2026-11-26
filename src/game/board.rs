@@ -7,6 +7,8 @@
 //! while a bit value of 0 indicates that the square is empty.
 
 use crate::game::auxil::flip_horizontal;
+
+use crate::game::lookup;
 use std::{
     fmt,
     ops::{Index, IndexMut},
@@ -144,6 +146,46 @@ impl Board {
             black_pieces[index] = flip_horizontal(pieces);
         }
         self[1] = black_pieces;
+    }
+
+    /// Returns the array of valid moves for the current player.
+    /// Each valid move is represented as `(u8, u64)`, the first number being `8 * rank + file`
+    /// and the second the board with 1's on valid tiles.
+    pub fn get_valid_moves(&self) -> [u64; 64] {
+        let mut valid_moves = [0u64; 64];
+
+        // Get the position of all enemy pieces for calculating moves.
+        // 6 binary ops.
+        let mut opponent_pieces = 0u64;
+        for pieces in self[!self.player as usize].iter() {
+            opponent_pieces |= pieces;
+        }
+
+        // Compute valid moves for each piece.
+        // 6 repeats.
+        for (index, pieces) in self[self.player as usize].iter().enumerate() {
+            let mut remaining_pieces = *pieces;
+            while remaining_pieces != 0 {
+                // Get last piece position as 8 * rank + file;
+                // 1 binary op.
+                let last_piece = remaining_pieces.trailing_zeros() as usize;
+
+                // Get the lookup table for the position based on the piece type.
+                let lookup_table = match index {
+                    // Pawn
+                    0 => {
+                        let move_lookup = lookup::PAWN_VALID_MOVES_LOOKUP[last_piece];
+                        let capture_lookup = lookup::PAWN_VALID_CAPTURES_LOOKUP[last_piece];
+                    }
+                    _ => {}
+                };
+
+                // Remove last 1.
+                remaining_pieces &= remaining_pieces - 1
+            }
+        }
+
+        valid_moves
     }
 }
 
